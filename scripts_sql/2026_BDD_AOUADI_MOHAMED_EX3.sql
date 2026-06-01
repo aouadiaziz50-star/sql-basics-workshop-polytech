@@ -13,19 +13,22 @@
 -- ============================================
 
 SELECT
-    s.id_streamer,
-    s.pseudo,
-    s.url_twitch,
-    c.id_creneau,
+    st.id_stream,
+    st.titre,
+    s.pseudo AS streamer,
     c.date_debut_autorisee,
-    c.date_fin_autorisee
-FROM streamer s
+    c.date_fin_autorisee,
+    st.heure_debut,
+    st.heure_fin,
+    st.date_fin_effective
+FROM stream st
+INNER JOIN streamer s
+    ON st.id_streamer = s.id_streamer
 INNER JOIN creneau c
-    ON s.id_streamer = c.id_streamer
+    ON st.id_creneau = c.id_creneau
+WHERE DATE(st.heure_debut) IN ('2025-09-05', '2025-09-06')
 ORDER BY
-    s.pseudo ASC,
-    c.date_debut_autorisee ASC;
-
+    st.heure_debut ASC;
 -- ============================================
 -- 2. Afficher les streams avec le streamer
 --    et le creneau correspondant
