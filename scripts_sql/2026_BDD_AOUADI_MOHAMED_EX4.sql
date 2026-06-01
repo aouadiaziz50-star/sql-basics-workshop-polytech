@@ -61,36 +61,37 @@ ORDER BY
     s.pseudo ASC;
 
 -- ============================================
--- 4. Duree moyenne des streams en minutes
+-- 4. Duree de chaque stream et duree moyenne globale en heures
 -- ============================================
 
 SELECT
+    titre,
     ROUND(
-        AVG(EXTRACT(EPOCH FROM (heure_fin - heure_debut)) / 60),
+        EXTRACT(EPOCH FROM (heure_fin - heure_debut)) / 3600,
         2
-    ) AS duree_moyenne_minutes
-FROM stream;
-
--- ============================================
--- 5. Duree moyenne des streams par streamer
--- ============================================
-
-SELECT
-    s.id_streamer,
-    s.pseudo,
-    COUNT(st.id_stream) AS nombre_streams,
+    ) AS duree_stream_heures,
     ROUND(
-        AVG(EXTRACT(EPOCH FROM (st.heure_fin - st.heure_debut)) / 60),
+        AVG(EXTRACT(EPOCH FROM (heure_fin - heure_debut)) / 3600) OVER (),
         2
-    ) AS duree_moyenne_minutes
-FROM streamer s
-LEFT JOIN stream st
-    ON s.id_streamer = st.id_streamer
-GROUP BY
-    s.id_streamer,
-    s.pseudo
+    ) AS duree_moyenne_globale_heures
+FROM stream
 ORDER BY
-    duree_moyenne_minutes DESC NULLS LAST;
+    heure_debut ASC;
+
+-- ============================================
+-- 5. Streamers ayant effectivement lance au moins un stream
+-- ============================================
+
+SELECT
+    s.pseudo,
+    st.titre,
+    st.heure_debut
+FROM streamer s
+INNER JOIN stream st
+    ON s.id_streamer = st.id_streamer
+ORDER BY
+    s.pseudo ASC,
+    st.heure_debut ASC;
 
 -- ============================================
 -- 6. Streamers ayant lance au moins un stream
