@@ -7,7 +7,12 @@
 -- Objectif :
 -- Modifier et supprimer des donnees dans la base.
 -- Les suppressions sont placees dans des transactions avec ROLLBACK
--- pour eviter de casser les donnees necessaires aux exercices suivants.
+-- pour montrer la requete sans casser les donnees utiles aux exercices suivants.
+
+-- IMPORTANT :
+-- Avant de tester cet exercice plusieurs fois, il est preferable
+-- de relancer EX1 pour remettre les donnees de depart.
+
 
 -- ============================================
 -- 1. Augmenter de 10% le montant du defi
@@ -22,7 +27,7 @@ SELECT
 FROM defi
 WHERE intitule = 'Tournoi Mario Kart';
 
--- Modification
+-- Modification du montant
 UPDATE defi
 SET montant_palier = montant_palier * 1.10
 WHERE intitule = 'Tournoi Mario Kart';
@@ -35,8 +40,10 @@ SELECT
 FROM defi
 WHERE intitule = 'Tournoi Mario Kart';
 
+
 -- ============================================
--- 2. Valider les defis ayant au moins 3 participants
+-- 2. Valider les defis non valides
+--    ayant au moins 3 participants
 -- ============================================
 
 -- Verification avant modification
@@ -53,12 +60,15 @@ GROUP BY
     d.intitule,
     d.etat_validation
 ORDER BY
-    d.id_defi;
+    d.id_defi ASC;
 
--- Modification
+-- Modification :
+-- On valide uniquement les defis encore non valides
+-- qui possedent au moins 3 participants.
 UPDATE defi
 SET etat_validation = TRUE
-WHERE id_defi IN (
+WHERE etat_validation = FALSE
+AND id_defi IN (
     SELECT
         id_defi
     FROM participation_defi
@@ -82,13 +92,16 @@ GROUP BY
     d.intitule,
     d.etat_validation
 ORDER BY
-    d.id_defi;
+    d.id_defi ASC;
+
 
 -- ============================================
 -- 3. Supprimer les streams non termines
---    Ici on utilise ROLLBACK pour ne pas supprimer definitivement
---    les donnees utiles aux prochains exercices.
 -- ============================================
+
+-- On utilise une transaction avec ROLLBACK.
+-- Cela permet de montrer le DELETE sans supprimer definitivement
+-- les donnees necessaires pour les exercices suivants.
 
 BEGIN;
 
@@ -98,9 +111,11 @@ SELECT
     titre,
     date_fin_effective
 FROM stream
-WHERE date_fin_effective IS NULL;
+WHERE date_fin_effective IS NULL
+ORDER BY
+    id_stream ASC;
 
--- Suppression
+-- Suppression des streams non termines
 DELETE FROM stream
 WHERE date_fin_effective IS NULL;
 
@@ -110,9 +125,11 @@ SELECT
     titre,
     date_fin_effective
 FROM stream
-WHERE date_fin_effective IS NULL;
+WHERE date_fin_effective IS NULL
+ORDER BY
+    id_stream ASC;
 
--- Annulation volontaire pour garder les donnees
+-- Annulation volontaire de la suppression
 ROLLBACK;
 
 -- Verification finale apres ROLLBACK
@@ -121,12 +138,18 @@ SELECT
     titre,
     date_fin_effective
 FROM stream
-WHERE date_fin_effective IS NULL;
+WHERE date_fin_effective IS NULL
+ORDER BY
+    id_stream ASC;
+
 
 -- ============================================
 -- 4. Supprimer les creneaux passes sans stream associe
---    Ici aussi on utilise ROLLBACK par prudence.
 -- ============================================
+
+-- Ici aussi, on utilise une transaction avec ROLLBACK.
+-- Le sujet demande de faire attention aux cles etrangeres.
+-- On supprime seulement les creneaux qui ne sont relies a aucun stream.
 
 BEGIN;
 
@@ -139,8 +162,10 @@ SELECT
 FROM creneau c
 LEFT JOIN stream st
     ON c.id_creneau = st.id_creneau
-WHERE c.date_fin_autorisee < '2025-09-08 23:59:59'
-AND st.id_stream IS NULL;
+WHERE c.date_fin_autorisee < CURRENT_DATE
+AND st.id_stream IS NULL
+ORDER BY
+    c.id_creneau ASC;
 
 -- Suppression des creneaux passes sans stream associe
 DELETE FROM creneau
@@ -150,7 +175,7 @@ WHERE id_creneau IN (
     FROM creneau c
     LEFT JOIN stream st
         ON c.id_creneau = st.id_creneau
-    WHERE c.date_fin_autorisee < '2025-09-08 23:59:59'
+    WHERE c.date_fin_autorisee < CURRENT_DATE
     AND st.id_stream IS NULL
 );
 
@@ -163,11 +188,14 @@ SELECT
 FROM creneau c
 LEFT JOIN stream st
     ON c.id_creneau = st.id_creneau
-WHERE c.date_fin_autorisee < '2025-09-08 23:59:59'
-AND st.id_stream IS NULL;
+WHERE c.date_fin_autorisee < CURRENT_DATE
+AND st.id_stream IS NULL
+ORDER BY
+    c.id_creneau ASC;
 
--- Annulation volontaire pour garder les donnees
+-- Annulation volontaire de la suppression
 ROLLBACK;
+
 
 -- ============================================
 -- 5. Verification finale des volumes de donnees
