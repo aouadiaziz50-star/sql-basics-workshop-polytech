@@ -1,287 +1,297 @@
 -- ============================================
--- Exercice 8 : Analyse de performance et creation d'index
+-- Exercice 8 : Performance et indexation
 -- Realise par : AOUADI Mohamed
 -- Date : 2026-06-01
 -- ============================================
 
--- Objectif :
--- Charger un grand volume de donnees, analyser une requete complexe
--- avec EXPLAIN ANALYZE, creer des index, puis comparer les performances.
+-- Ce script charge un volume important de donnees,
+-- execute une requete complexe avant indexation,
+-- cree plusieurs index utiles, puis relance la meme requete.
+-- Les temps d'execution sont visibles directement dans les deux
+-- sorties EXPLAIN ANALYZE de PgAdmin.
 
--- ATTENTION :
--- Ce script remplace les petites donnees de test de l'exercice 1
--- par des donnees massives.
--- Pour revenir aux petites donnees, il suffit de relancer EX1 apres EX8.
+-- Si besoin, relancer EX1 apres cet exercice pour retrouver
+-- les petites donnees de depart.
+
 
 -- ============================================
--- 1. Reinitialisation des tables
+-- 1. Nettoyage des index de test
+-- ============================================
+
+DROP INDEX IF EXISTS idx_perf_participation_streamer;
+DROP INDEX IF EXISTS idx_perf_participation_defi;
+DROP INDEX IF EXISTS idx_perf_stream_streamer;
+DROP INDEX IF EXISTS idx_perf_stream_fin_effective;
+DROP INDEX IF EXISTS idx_perf_stream_streamer_fin;
+DROP INDEX IF EXISTS idx_perf_creneau_streamer;
+
+
+-- ============================================
+-- 2. Reinitialisation des tables
 -- ============================================
 
 TRUNCATE TABLE stream, participation_defi, creneau, defi, streamer
 RESTART IDENTITY CASCADE;
 
--- ============================================
--- 2. Insertion de 50 000 streamers
--- ============================================
-
-DO $$
-BEGIN
-    FOR i IN 1..50000 LOOP
-        INSERT INTO streamer (pseudo, url_twitch)
-        VALUES (
-            'pseudo_' || i,
-            'https://twitch.tv/pseudo_' || i
-        );
-    END LOOP;
-END $$;
 
 -- ============================================
--- 3. Insertion de 50 000 defis
+-- 3. Insertion des streamers
 -- ============================================
 
-DO $$
-BEGIN
-    FOR i IN 1..50000 LOOP
-        INSERT INTO defi (intitule, montant_palier, etat_validation)
-        VALUES (
-            'defi_' || i,
-            (random() * 50000)::DECIMAL(12,2) + 500,
-            (random() < 0.5)
-        );
-    END LOOP;
-END $$;
+INSERT INTO streamer (pseudo, url_twitch)
+SELECT
+    'streamer_' || gs,
+    'https://twitch.tv/streamer_' || gs
+FROM generate_series(1, 50000) AS gs;
+
 
 -- ============================================
--- 4. Insertion de 250 000 participations
--- Utilisation de ON CONFLICT DO NOTHING pour eviter les doublons
--- sur la cle primaire composee.
+-- 4. Insertion des defis
 -- ============================================
 
-DO $$
-BEGIN
-    FOR i IN 1..250000 LOOP
-        INSERT INTO participation_defi (id_streamer, id_defi)
-        VALUES (
-            FLOOR(random() * 50000 + 1)::INT,
-            FLOOR(random() * 50000 + 1)::INT
-        )
-        ON CONFLICT DO NOTHING;
-    END LOOP;
-END $$;
+INSERT INTO defi (intitule, montant_palier, etat_validation)
+SELECT
+    'Defi caritatif ' || gs,
+    ROUND((500 + random() * 50000)::numeric, 2),
+    random() < 0.5
+FROM generate_series(1, 50000) AS gs;
+
 
 -- ============================================
--- 5. Insertion de 100 000 creneaux
+-- 5. Insertion des creneaux
 -- ============================================
 
-DO $$
-DECLARE
-    start_date TIMESTAMP;
-    end_date TIMESTAMP;
-BEGIN
-    FOR i IN 1..100000 LOOP
-        start_date := TIMESTAMP '2025-09-05 18:00:00'
-                      + (random() * 48)::INT * INTERVAL '1 hour';
+INSERT INTO creneau (
+    id_streamer,
+    date_debut_autorisee,
+    date_fin_autorisee
+)
+SELECT
+    ((gs - 1) % 50000) + 1,
+    TIMESTAMP '2025-09-05 08:00:00'
+        + ((gs % 72) * INTERVAL '1 hour'),
+    TIMESTAMP '2025-09-05 08:00:00'
+        + ((gs % 72) * INTERVAL '1 hour')
+        + INTERVAL '3 hours'
+FROM generate_series(1, 150000) AS gs;
 
-        end_date := start_date
-                    + (random() * 4 + 1)::INT * INTERVAL '1 hour';
-
-        INSERT INTO creneau (
-            id_streamer,
-            date_debut_autorisee,
-            date_fin_autorisee
-        )
-        VALUES (
-            FLOOR(random() * 50000 + 1)::INT,
-            start_date,
-            end_date
-        );
-    END LOOP;
-END $$;
 
 -- ============================================
--- 6. Insertion de 100 000 streams
+-- 6. Insertion des participations aux defis
 -- ============================================
 
-DO $$
-DECLARE
-    start_date TIMESTAMP;
-    end_date TIMESTAMP;
-    effective_end_date TIMESTAMP;
-BEGIN
-    FOR i IN 1..100000 LOOP
-        start_date := TIMESTAMP '2025-09-05 18:00:00'
-                      + (random() * 48)::INT * INTERVAL '1 hour';
+INSERT INTO participation_defi (id_streamer, id_defi)
+SELECT DISTINCT
+    ((gs * 17) % 50000) + 1 AS id_streamer,
+    ((gs * 31) % 50000) + 1 AS id_defi
+FROM generate_series(1, 300000) AS gs
+ON CONFLICT DO NOTHING;
 
-        end_date := start_date
-                    + (random() * 4 + 1)::INT * INTERVAL '1 hour';
-
-        effective_end_date := CASE
-            WHEN random() < 0.7
-            THEN end_date
-            ELSE end_date + (random() * 3)::INT * INTERVAL '1 hour'
-        END;
-
-        INSERT INTO stream (
-            id_streamer,
-            id_creneau,
-            titre,
-            heure_debut,
-            heure_fin,
-            date_fin_effective
-        )
-        VALUES (
-            FLOOR(random() * 50000 + 1)::INT,
-            FLOOR(random() * 100000 + 1)::INT,
-            'Stream caritatif ' || i,
-            start_date,
-            end_date,
-            effective_end_date
-        );
-    END LOOP;
-END $$;
 
 -- ============================================
--- 7. Verification du volume de donnees
+-- 7. Insertion des streams
+-- ============================================
+
+INSERT INTO stream (
+    id_streamer,
+    id_creneau,
+    titre,
+    heure_debut,
+    heure_fin,
+    date_fin_effective
+)
+SELECT
+    ((gs - 1) % 50000) + 1 AS id_streamer,
+    ((gs - 1) % 150000) + 1 AS id_creneau,
+    'Stream caritatif ' || gs AS titre,
+    TIMESTAMP '2025-09-05 08:15:00'
+        + ((gs % 72) * INTERVAL '1 hour') AS heure_debut,
+    TIMESTAMP '2025-09-05 08:15:00'
+        + ((gs % 72) * INTERVAL '1 hour')
+        + INTERVAL '2 hours' AS heure_fin,
+    CASE
+        WHEN gs % 5 = 0 THEN NULL
+        WHEN gs % 3 = 0 THEN
+            TIMESTAMP '2025-09-05 08:15:00'
+            + ((gs % 72) * INTERVAL '1 hour')
+            + INTERVAL '2 hours 30 minutes'
+        ELSE
+            TIMESTAMP '2025-09-05 08:15:00'
+            + ((gs % 72) * INTERVAL '1 hour')
+            + INTERVAL '2 hours'
+    END AS date_fin_effective
+FROM generate_series(1, 150000) AS gs;
+
+
+-- ============================================
+-- 8. Verification du volume de donnees
 -- ============================================
 
 SELECT COUNT(*) AS nb_streamers FROM streamer;
 SELECT COUNT(*) AS nb_defis FROM defi;
-SELECT COUNT(*) AS nb_participations FROM participation_defi;
 SELECT COUNT(*) AS nb_creneaux FROM creneau;
+SELECT COUNT(*) AS nb_participations FROM participation_defi;
 SELECT COUNT(*) AS nb_streams FROM stream;
 
+
 -- ============================================
--- 8. Requete complexe SANS index
--- Executer cette requete avant la creation des index
--- et noter le Planning Time et Execution Time dans les commentaires.
+-- 9. Mise a jour des statistiques avant analyse
 -- ============================================
 
-EXPLAIN ANALYZE
+ANALYZE streamer;
+ANALYZE defi;
+ANALYZE creneau;
+ANALYZE participation_defi;
+ANALYZE stream;
+
+
+-- ============================================
+-- 10. Requete complexe avant creation des index
+-- ============================================
+
+-- Cette premiere analyse permet d'observer le plan choisi
+-- par PostgreSQL avant l'ajout des index sur les cles etrangeres.
+
+EXPLAIN (ANALYZE, BUFFERS)
 SELECT
     s.pseudo,
-    d.intitule,
-    COUNT(st.id_stream) AS nb_streams,
+    COUNT(DISTINCT st.id_stream) AS nombre_streams,
+    COUNT(DISTINCT pd.id_defi) AS nombre_defis,
     COUNT(
         CASE
-            WHEN st.date_fin_effective > st.heure_fin THEN 1
+            WHEN st.date_fin_effective IS NOT NULL
+             AND st.date_fin_effective > st.heure_fin
+            THEN 1
         END
-    ) AS nb_depassements
+    ) AS nombre_depassements,
+    COALESCE(SUM(d.montant_palier), 0) AS montant_total_defis
 FROM streamer s
-JOIN participation_defi pd
-    ON s.id_streamer = pd.id_streamer
-JOIN defi d
-    ON pd.id_defi = d.id_defi
 LEFT JOIN stream st
     ON s.id_streamer = st.id_streamer
-WHERE (s.id_streamer + 0) < 5000
-GROUP BY
-    s.id_streamer,
-    s.pseudo,
-    d.id_defi,
-    d.intitule
-ORDER BY
-    s.pseudo,
-    d.intitule;
-
--- Observation avant index :
--- Planning Time : A_COMPLETER ms
--- Execution Time : A_COMPLETER ms
--- Scans observes : A_COMPLETER
--- Operations couteuses : A_COMPLETER
-
--- ============================================
--- 9. Creation des index
--- ============================================
-
-CREATE INDEX IF NOT EXISTS idx_participation_defi_id_streamer
-    ON participation_defi(id_streamer);
-
-CREATE INDEX IF NOT EXISTS idx_participation_defi_id_defi
-    ON participation_defi(id_defi);
-
-CREATE INDEX IF NOT EXISTS idx_stream_id_streamer
-    ON stream(id_streamer);
-
-CREATE INDEX IF NOT EXISTS idx_stream_date_fin_effective
-    ON stream(date_fin_effective);
-
-CREATE INDEX IF NOT EXISTS idx_stream_id_streamer_date_fin_effective
-    ON stream(id_streamer, date_fin_effective);
-
--- Mise a jour des statistiques pour aider l'optimiseur PostgreSQL
-ANALYZE;
-
--- ============================================
--- 10. Meme requete APRES index
--- ============================================
-
-EXPLAIN ANALYZE
-SELECT
-    s.pseudo,
-    d.intitule,
-    COUNT(st.id_stream) AS nb_streams,
-    COUNT(
-        CASE
-            WHEN st.date_fin_effective > st.heure_fin THEN 1
-        END
-    ) AS nb_depassements
-FROM streamer s
-JOIN participation_defi pd
-    ON s.id_streamer = pd.id_streamer
-JOIN defi d
-    ON pd.id_defi = d.id_defi
-LEFT JOIN stream st
-    ON s.id_streamer = st.id_streamer
-WHERE (s.id_streamer + 0) < 5000
-GROUP BY
-    s.id_streamer,
-    s.pseudo,
-    d.id_defi,
-    d.intitule
-ORDER BY
-    s.pseudo,
-    d.intitule;
-
--- Observation apres index :
--- Planning Time : A_COMPLETER ms
--- Execution Time : A_COMPLETER ms
--- Scans observes : A_COMPLETER
--- Gain de performance : A_COMPLETER %
-
--- ============================================
--- 11. Bonus : index trigram pour les recherches LIKE
--- ============================================
-
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
-CREATE INDEX IF NOT EXISTS idx_streamer_pseudo_trgm
-    ON streamer USING gin (pseudo gin_trgm_ops);
-
-EXPLAIN ANALYZE
-SELECT
-    s.pseudo,
-    COUNT(pd.id_defi) AS nb_defis
-FROM streamer s
 LEFT JOIN participation_defi pd
     ON s.id_streamer = pd.id_streamer
-WHERE s.pseudo LIKE '%pseudo%1%'
+LEFT JOIN defi d
+    ON pd.id_defi = d.id_defi
+WHERE s.id_streamer BETWEEN 1 AND 10000
 GROUP BY
     s.id_streamer,
-    s.pseudo;
+    s.pseudo
+ORDER BY
+    montant_total_defis DESC,
+    nombre_streams DESC;
+
 
 -- ============================================
--- 12. Conclusion
+-- 11. Creation des index
 -- ============================================
 
--- Les index les plus utiles sont ceux places sur les cles etrangeres
--- utilisees dans les jointures : participation_defi(id_streamer),
--- participation_defi(id_defi) et stream(id_streamer).
+CREATE INDEX idx_perf_participation_streamer
+    ON participation_defi(id_streamer);
+
+CREATE INDEX idx_perf_participation_defi
+    ON participation_defi(id_defi);
+
+CREATE INDEX idx_perf_stream_streamer
+    ON stream(id_streamer);
+
+CREATE INDEX idx_perf_stream_fin_effective
+    ON stream(date_fin_effective);
+
+CREATE INDEX idx_perf_stream_streamer_fin
+    ON stream(id_streamer, date_fin_effective);
+
+CREATE INDEX idx_perf_creneau_streamer
+    ON creneau(id_streamer);
+
+
+-- ============================================
+-- 12. Mise a jour des statistiques apres indexation
+-- ============================================
+
+ANALYZE streamer;
+ANALYZE defi;
+ANALYZE creneau;
+ANALYZE participation_defi;
+ANALYZE stream;
+
+
+-- ============================================
+-- 13. Meme requete apres creation des index
+-- ============================================
+
+-- Cette deuxieme analyse permet de comparer le nouveau plan
+-- avec celui obtenu avant indexation.
+
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT
+    s.pseudo,
+    COUNT(DISTINCT st.id_stream) AS nombre_streams,
+    COUNT(DISTINCT pd.id_defi) AS nombre_defis,
+    COUNT(
+        CASE
+            WHEN st.date_fin_effective IS NOT NULL
+             AND st.date_fin_effective > st.heure_fin
+            THEN 1
+        END
+    ) AS nombre_depassements,
+    COALESCE(SUM(d.montant_palier), 0) AS montant_total_defis
+FROM streamer s
+LEFT JOIN stream st
+    ON s.id_streamer = st.id_streamer
+LEFT JOIN participation_defi pd
+    ON s.id_streamer = pd.id_streamer
+LEFT JOIN defi d
+    ON pd.id_defi = d.id_defi
+WHERE s.id_streamer BETWEEN 1 AND 10000
+GROUP BY
+    s.id_streamer,
+    s.pseudo
+ORDER BY
+    montant_total_defis DESC,
+    nombre_streams DESC;
+
+
+-- ============================================
+-- 14. Requete ciblee sur les streams en depassement
+-- ============================================
+
+-- Cette requete montre l'interet des index sur les colonnes
+-- utilisees pour filtrer ou joindre les donnees.
+
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT
+    s.pseudo,
+    st.titre,
+    st.heure_fin,
+    st.date_fin_effective,
+    ROUND(
+        (EXTRACT(EPOCH FROM (st.date_fin_effective - st.heure_fin)) / 60)::numeric,
+        2
+    ) AS depassement_minutes
+FROM stream st
+INNER JOIN streamer s
+    ON st.id_streamer = s.id_streamer
+WHERE st.date_fin_effective IS NOT NULL
+AND st.date_fin_effective > st.heure_fin
+AND st.id_streamer BETWEEN 1 AND 10000
+ORDER BY
+    depassement_minutes DESC;
+
+
+-- ============================================
+-- 15. Conclusion
+-- ============================================
+
+-- Les index crees portent principalement sur les cles etrangeres
+-- utilisees dans les jointures :
+-- participation_defi(id_streamer), participation_defi(id_defi),
+-- stream(id_streamer) et creneau(id_streamer).
 --
--- Sans index, PostgreSQL doit parcourir beaucoup de lignes,
--- ce qui provoque des scans sequentiels et des jointures plus couteuses.
+-- L'index compose stream(id_streamer, date_fin_effective)
+-- aide les requetes qui filtrent les streams d'un streamer
+-- et qui analysent les dates de fin effective.
 --
--- Apres creation des index, l'optimiseur peut retrouver plus rapidement
--- les lignes correspondant aux jointures et aux filtres.
---
--- Le gain exact doit etre complete apres execution dans PgAdmin,
--- en comparant le Planning Time et surtout l'Execution Time.
+-- La comparaison des deux sorties EXPLAIN ANALYZE permet
+-- d'observer l'evolution du plan d'execution, notamment le passage
+-- de parcours sequentiels vers des parcours indexes lorsque
+-- PostgreSQL les juge avantageux.
